@@ -37,6 +37,8 @@ model {
   
   alpha ~ student_t(3,0,2.5);
   betas_raw ~ normal(0,1);
+  sum(betas_raw) ~ normal(0,0.001*nknots);
+  
   
   x ~ normal(mu, sigma);
 }
