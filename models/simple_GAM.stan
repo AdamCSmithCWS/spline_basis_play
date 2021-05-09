@@ -3,7 +3,6 @@
 data {
   int<lower=0> N;
   vector[N] y;
-  vector[N] x;
   int<lower=2> nknots;
   matrix[N,nknots] Xb;
 }
@@ -37,9 +36,19 @@ model {
   
   alpha ~ student_t(3,0,2.5);
   betas_raw ~ normal(0,1);
-  sum(betas_raw) ~ normal(0,0.001*nknots);
+ 
   
-  
-  x ~ normal(mu, sigma);
+  y ~ normal(mu, sigma);
 }
+
+generated quantities {
+
+       vector[N] log_lik;
+  for(i in 1:N){
+  log_lik[i] = normal_lpdf(y[i] | mu[i] , sigma);
+  }
+  
+
+}
+
 

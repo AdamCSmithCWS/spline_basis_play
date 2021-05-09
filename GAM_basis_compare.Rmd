@@ -1,0 +1,208 @@
+---
+title: "GAM Basis Comparisons"
+author: "Adam C. Smith"
+date: "08/05/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setting up the basis functions for a Bayesian GAM
+
+## The goal
+I'm trying to include a GAM smooth in a larger Bayesian model. I'd like to use the `mgcv` functions to generate the basis functions. I want a model that uses the random-effects approach to the complexity penalty, similar to what's done in `brms` and `rstanarm`. I thought that `brms` and `rstanarm` used the same basis functions as mgcv, and I also thought that the `jagam` function in the `mgcv` package would output those basis functions. 
+
+## The problem
+The basis functions from `brms` and `rstanarm` are not the same as the basis functions from `jagam`.
+And worse, the basis function from `jagam` does a terrible job (see below).
+What am I doing wrong?
+
+
+```{r packages}
+library(rstanarm)
+library(brms)
+library(rstan)
+rstan_options(auto_write = TRUE)
+library(tidyverse)
+library(GGally)
+library(tidybayes)
+library(loo)
+library(mgcv)
+
+```
+
+## A simple demonstration
+Using very simple simulated data that have a quadratic relationship, I'll generate the basis functions for each of the three packages.
+
+```{r sim_data}
+#super simple data with a true quadratic relationship
+x = -20:20
+y = 2 + x*0.04 + (x^2)*-0.01 + rnorm(length(x),0,0.01)
+dat = data.frame(y = y,x = x)
+
+```
+
+### rstanarm
+To get the basis function, I'll run a minimal (and clearly insufficient) fit. The fitted model is irrelevant, it's the input data that I want. 
+Is there a way to get the basis function that rstanarm uses, without fitting the model?
+```{r rstanarm_setup}
+M = stan_gamm4(y ~ s(x,k = 8, bs = "tp"),data = dat,
+               chains=1, iter=200,
+               warmup=100,
+               cores = 1)
+# drop the constant term and re-order columns to match brms (not necessary, but tidy),
+rstanarm_basis = matrix(M$x[,c(2,7,6,5,4,3,8)],nrow = 41,ncol = 7)
+```
+
+### brms
+Same as for rstanarm, Ill run a minimal (and similarly insufficient) fit. 
+Is there a way to get the basis function that brms uses, without fitting the model?
+```{r brms_setup}
+Mbr = brm(bf(y ~ s(x,k = 8, bs = "tp")),data = dat,
+          chains=1, iter=200,
+          warmup=100,
+          cores = 1)
+
+st_dat = standata(Mbr)
+## brms separates the linear term from the rest of the basis, this just adds it back to match rstanarm
+brms_basis <- matrix(c(st_dat$Zs_1_1,st_dat$Xs),nrow = 41,ncol = 7)
+
+```
+
+### basis functions from brms and rstanarm are identical
+```{r brms_rstanarm_comp}
+# they are identical
+all(rstanarm_basis == brms_basis)
+
+```
+
+### jagam basis
+```{r jagam_setup}
+Mj = jagam(y ~ s(x,k = 8, bs = "tp"),data = dat,
+           file = "temp_jag.del")
+# drop the constant term 
+jagam_basis = matrix(Mj$jags.data$X[,-c(1)],nrow = 41,ncol = 7)
+
+```
+
+### the jagam basis is different
+```{r pairs_plot}
+# convert rstan basis to dataframe for ggpairs plot
+rstanarm_X = data.frame(rstanarm_basis) 
+names(rstanarm_X) <- paste("rstanarm",1:7,sep = "_")
+
+# convert jagam basis to dataframe for ggpairs plot
+jagam_X = data.frame(jagam_basis)
+names(jagam_X) <- paste("jagam",1:7,sep = "_")
+
+
+
+paired_mat = bind_cols(rstanarm_X,jagam_X)
+
+pp = ggpairs(data = paired_mat)
+
+print(pp)
+
+```
+
+So it's very different. What am I not understanding? I thought `brms` and `rstanarm` used the mgcv functions to setup the basis. The model formulas are the same.
+
+
+### compare the fit of the two basis functions
+Fit a simple GAM using `rstan` and some reasonably flexible priors, similar to what are used in `brms`.
+```{r model_setup}
+
+dat_rstanarm <- list(y = y,
+               Xb = rstanarm_basis,
+               N = 41,
+               nknots = 7)
+
+dat_jagam <- list(y = y,
+                Xb = jagam_basis,
+                N = 41,
+                nknots = 7)
+
+modl_file = "models/simple_GAM.Stan"
+
+
+modl = stan_model(file=modl_file)
+modl
+
+```
+
+```{r model_fit}
+parms = c("betas",
+          "mu",
+          "sd_beta",
+          "sigma",
+          "alpha",
+          "log_lik")
+## run sampler on model, data
+stanfit_rstanarm <- sampling(modl,
+                               data=dat_rstanarm,
+                               verbose=TRUE, refresh=100,
+                               chains=4, iter=2000,
+                               warmup=1000,
+                               cores = 4,
+                               pars = c(parms),
+                               control = list(adapt_delta = 0.95,
+                                              max_treedepth = 15))
+
+stanfit_jagam <- sampling(modl,
+                        data=dat_jagam,
+                        verbose=TRUE, refresh=100,
+                        chains=4, iter=2000,
+                        warmup=1000,
+                        cores = 4,
+                        pars = c(parms),
+                        control = list(adapt_delta = 0.95,
+                                       max_treedepth = 15))
+
+
+
+loo_rstanarm = loo(stanfit_rstanarm)
+loo_jagam = loo(stanfit_jagam)
+
+```
+The jagam model clearly under performs compared to the other. 
+
+
+### And the jagam basis does a terrible job
+
+```{r prediction_comparison}
+
+mu_rstanarm <- gather_draws(stanfit_rstanarm,mu[n]) %>% 
+  group_by(n) %>% 
+  summarise(mu = mean(.value),
+            lci = quantile(.value,0.025),
+            uci = quantile(.value,0.975)) %>% 
+  mutate(model = "rstanarm",
+         x = n-21)%>% 
+  bind_cols(.,dat)
+
+
+mu_jagam <- gather_draws(stanfit_jagam,mu[n]) %>% 
+  group_by(n) %>% 
+  summarise(mu = mean(.value),
+            lci = quantile(.value,0.025),
+            uci = quantile(.value,0.975)) %>% 
+  mutate(model = "jagam",
+         x = n-21)%>% 
+  bind_cols(.,dat)
+
+
+mu = bind_rows(mu_rstanarm,mu_jagam)
+
+mupl = ggplot(data = mu,aes(x = x,y = mu))+
+  geom_line(aes(colour = model))+
+  geom_ribbon(aes(ymin = lci,ymax = uci,fill = model),alpha = 0.2)+
+  geom_point(data = dat,aes(x = x,y = y),alpha = 0.3,inherit.aes = FALSE)
+
+print(mupl)
+
+
+```
+
+
