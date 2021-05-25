@@ -40,6 +40,7 @@ Using very simple simulated data that have a quadratic relationship, I'll genera
 #super simple data with a true quadratic relationship
 x = -20:20
 y = 2 + x*0.04 + (x^2)*-0.01 + rnorm(length(x),0,0.01)
+y2e = rpois(length(x),exp(0.5 + x*0.04 + (x^2)*-0.01))
 dat = data.frame(y = y,x = x)
 
 ```

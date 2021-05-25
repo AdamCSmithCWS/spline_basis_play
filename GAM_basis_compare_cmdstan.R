@@ -8,6 +8,7 @@ library(shinystan)
 library(tidybayes)
 library(loo)
 library(mgcv)
+library(posterior)
 
 
 #super simple quadratic true relationship
@@ -51,7 +52,7 @@ parms = c("betas",
           "log_lik")
 ## run sampler on model, data
 
-stanfit_mgcv <- modl$sample(data=dat_mgcv,
+cmdstanfit_mgcv <- modl$sample(data=dat_mgcv,
                             refresh=100,
                        chains=4, iter_sampling =2000,
                        iter_warmup=1000,
@@ -61,18 +62,42 @@ stanfit_mgcv <- modl$sample(data=dat_mgcv,
 
 
 
+# Crainiceanu basis -------------------------------------------------------
 
+source("functions/GAM_basis_function.R")
+
+hb = gam.basis.func(orig.preds = dat$x,nknots = 7,
+                    sm_name = "home_brew",
+                    standardize = "z")
+dat_hb <- list(y = y,
+               Xb = hb[["home_brew_basis"]],
+               N = 41,
+               nknots = 7)
+
+cmdstanfit_hb <- modl$sample(data=dat_hb,
+                            refresh=100,
+                            chains=4, iter_sampling =2000,
+                            iter_warmup=1000,
+                            parallel_chains = 4,
+                            max_treedepth = 15,
+                            adapt_delta = 0.95)
+
+
+stanfit_hb <- rstan::read_stan_csv(cmdstanfit_hb$output_files())
+stanfit_mgcv <- rstan::read_stan_csv(cmdstanfit_mgcv$output_files())
+
+loo_hb = loo(stanfit_hb)
 loo_mgcv = loo(stanfit_mgcv)
 
 
-loo_rstanarm
+
+loo_hb
 loo_mgcv 
-loo_jagam
 
 
 
 
-mu_mgcv <- gather_draws(stanfit_mgcv,mu[n]) %>% 
+mu_mgcv <- gather_draws(as_draws_df(cmdstanfit_mgcv$draws()),mu[n]) %>% 
   group_by(n) %>% 
   summarise(mu = mean(.value),
             lci = quantile(.value,0.025),
@@ -83,27 +108,19 @@ mu_mgcv <- gather_draws(stanfit_mgcv,mu[n]) %>%
 
 
 
-mu_rstanarm <- gather_draws(stanfit_rstanarm,mu[n]) %>% 
+mu_hb <- gather_draws(as_draws_df(cmdstanfit_hb$draws()),mu[n]) %>% 
   group_by(n) %>% 
   summarise(mu = mean(.value),
             lci = quantile(.value,0.025),
             uci = quantile(.value,0.975)) %>% 
-  mutate(model = "rstanarm",
+  mutate(model = "hb",
          n = n-21)%>% 
   bind_cols(.,dat)
 
 
-mu_jagam <- gather_draws(stanfit_jagam,mu[n]) %>% 
-  group_by(n) %>% 
-  summarise(mu = mean(.value),
-            lci = quantile(.value,0.025),
-            uci = quantile(.value,0.975)) %>% 
-  mutate(model = "jagam",
-         n = n-21)%>% 
-  bind_cols(.,dat)
 
 
-mu = bind_rows(mu_rstanarm,mu_jagam,mu_mgcv)
+mu = bind_rows(mu_hb,mu_mgcv)
 
 
 
@@ -114,19 +131,15 @@ mupl = ggplot(data = mu,aes(x = n,y = mu))+
   geom_point(data = dat,aes(x = x,y = y),alpha = 0.3,inherit.aes = FALSE)
 print(mupl)
 
-png(filename = "predictions_plot.png",
-    res = 150,
-    width = 480*2,
-    height = 480*2)
-print(mupl)
-dev.off()
+# png(filename = "predictions_plot.png",
+#     res = 150,
+#     width = 480*2,
+#     height = 480*2)
+# print(mupl)
+# dev.off()
+# 
 
 
-
-
-get_elapsed_time(stanfit_jagam)
-get_elapsed_time(stanfit_rstanarm)
-get_elapsed_time(stanfit_mgcv)
 
 
 
