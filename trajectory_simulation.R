@@ -190,15 +190,14 @@ basis = as.data.frame(stan_data$year_basispred)
 
 
 stacked_basis = basis %>% 
-  mutate(n = 1:50) %>% 
+  mutate(n = 1:54) %>% 
   pivot_longer(.,
                cols = starts_with("V"),
                names_to = "knot",
                values_to = "basis")
 
 bas_gg = ggplot(data = stacked_basis,aes(x = n,y = basis,colour = knot))+
-  geom_line()+
-  facet_wrap(~pkg,ncol = 3)
+  geom_line()
 print(bas_gg)
 
 
