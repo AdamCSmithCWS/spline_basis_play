@@ -24,21 +24,24 @@ dat = data.frame(y = y,x = x)
 ## just to get the basis function
 ## minimal (and obviously insufficient) fit
 ## Is there a way to get the basis without fitting it?
-M = stan_gamm4(y ~ s(x,k = 8, bs = "tp"),data = dat,
-               chains=1, iter=200,
-               warmup=100,
+M = stan_gamm4(y ~ s(x,k = 8, bs = "cr"),data = dat,
+               chains=1, iter=600,
+               warmup=300,
                cores = 1)
 # drop the constant term re-order columns to match brms (not necessary, but tidy),
 rstanarm_basis = matrix(M$x[,c(2,7,6,5,4,3,8)],nrow = 41,ncol = 7)
 
-
+modl = get_stancode(M$stanfit)
+cat(modl,file = "tmp_stancode.stan")
 
 
 #  brms basis ------------------------------------------------------------
 ## just to get the basis function
 ## minimal (and obviously insufficient) fit
 ## Is there a way to get the basis without fitting it?
-Mbr = brm(bf(y ~ s(x,k = 8, bs = "tp")),data = dat,
+
+brms_code = make_stancode(bf(y ~ s(x,k = 8, bs = "ps")),data = dat)
+Mbr = brm(bf(y ~ s(x,k = 8, bs = "ds")),data = dat,
           chains=1, iter=200,
           warmup=100,
           cores = 1)
@@ -46,7 +49,7 @@ Mbr = brm(bf(y ~ s(x,k = 8, bs = "tp")),data = dat,
 st_dat = standata(Mbr)
 ## brms separates the linear term from the rest of the basis, this just adds it back to match rstanarm
 brms_basis <- matrix(c(st_dat$Zs_1_1,st_dat$Xs),nrow = 41,ncol = 7)
-
+brms_code2 <- stancode(Mbr)
 # they are identical
 all(rstanarm_basis == brms_basis)
 

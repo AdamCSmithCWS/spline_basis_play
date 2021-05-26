@@ -35,12 +35,17 @@ parameters {
   real<lower=0> sdnoise;    // sd of over-dispersion
  //real<lower=1> nu;  //optional heavy-tail df for t-distribution
   real<lower=0> sdrte;    // sd of route effects
-  real<lower=0> sdBETA;    // sd of GAM coefficients
+  
+  corr_matrix[nknots_year] omega; //covariance
+
+  //real<lower=0> sdBETA;    // sd of GAM coefficients
   real<lower=0> sdyear;    // sd of year effects
  // real<lower=4,upper=500> nu; // df of t-distribution > 4 so that it has a finite mean, variance, kurtosis
-  
+  vector<lower=0>[nknots_year] sdBETA;//_raw;
   vector[nknots_year] BETA_raw;//_raw; 
  real alpha; // overall intercept
+   vector[nknots_year] zeros;
+
 }
 
 transformed parameters { 
@@ -51,9 +56,13 @@ transformed parameters {
   vector[nyears] yeareffect;
   vector[ncounts] noise;             // over-dispersion
   vector[nknots_year] BETA;
+    cov_matrix[nknots_year] mvsdBETA;
+  //matrix[nknots_year, n_cells] Theta;
   
+  //Theta = diag_pre_multiply(alpha, omega) * u';
   
-  BETA = sdBETA*BETA_raw;
+  mvsdBETA = quad_form_diag(omega,sdBETA);
+  BETA = BETA_raw;//sdBETA*BETA_raw;
   
   Y_pred = year_basispred * BETA; 
   
@@ -65,7 +74,8 @@ yeareffect = sdyear*yeareffect_raw;
 
   noise = sdnoise*noise_raw;
   
-  
+  // for(i in 1:nknots_year) zeros[i] = 0;
+  // 
 
   for(i in 1:ncounts){
     E[i] =  alpha + Y_pred[year[i]] + yeareffect[year[i]] + rte[route[i]] + noise[i];
@@ -79,11 +89,14 @@ model {
   sdnoise ~ normal(0,1); //prior on scale of extra Poisson log-normal variance
   noise_raw ~ normal(0,1);// ~ student_t(4,0,1);//student_t(nu,0,1); //normal tailed extra Poisson log-normal variance
    
+  omega ~ lkj_corr(2); 
+  
   sdrte ~ normal(0,1); //prior on sd of route effects
   sdyear ~ gamma(2,2); // prior on sd of yeareffects - stratum specific, and boundary-avoiding with a prior mode at 0.5 (1/2) - recommended by https://doi.org/10.1007/s11336-013-9328-2 
   //sdBETA ~ gamma(2,2); // prior on sd of GAM parameters
   //sdBETA ~ std_normal(); // prior on sd of GAM parameters
   sdBETA ~ student_t(3,0,sdB_pr); // prior on sd of GAM parameters
+  zeros ~ student_t(3,0,2.5); // prior on sd of GAM parameters
   
   //nu ~ gamma(2,0.1); // prior on df for t-distribution of heavy tailed route-effects from https://github.com/stan-dev/stan/wiki/Prior-Choice-Recommendations#prior-for-degrees-of-freedom-in-students-t-distribution
 
@@ -98,7 +111,7 @@ model {
   
  alpha ~ std_normal();
   
-  BETA_raw ~ std_normal();// prior on fixed effect mean GAM parameters
+  BETA_raw ~ multi_normal(zeros,mvsdBETA);//~ std_normal();// prior on fixed effect mean GAM parameters
   //sum to zero constraint
   //sum(BETA_raw) ~ normal(0,0.001*nknots_year);
   
