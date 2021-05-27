@@ -2,3 +2,8 @@
 .Rhistory
 .RData
 .Ruserdata
+arch/
+output/
+temp_data.RData
+*.del
+

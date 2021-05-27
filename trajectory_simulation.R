@@ -5,8 +5,8 @@ library(tidyverse)
 source("Functions/gam_basis_function_mgcv.R")
 # library(rstan)
 # rstan_options(auto_write = TRUE)
-library(shinystan)
-library(tidybayes)
+#library(shinystan)
+#library(tidybayes)
 library(cmdstanr)
 
 years = 1966:2019
