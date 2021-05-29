@@ -55,7 +55,7 @@ posterior_samples <- function(fit = cmdstanfit,
   
   if(is_rstan | is_mcmc){
   samples <- as_draws_df(as.array(fit)) %>% 
-    select(starts_with(parm_ex,ignore.case = FALSE),
+    dplyr::select(starts_with(parm_ex,ignore.case = FALSE),
            .chain,
            .iteration,
            .draw)#,pars = c(parm)))
