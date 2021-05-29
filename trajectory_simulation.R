@@ -5,7 +5,7 @@ library(tidyverse)
 source("Functions/gam_basis_function_mgcv.R")
 # library(rstan)
 # rstan_options(auto_write = TRUE)
-#library(shinystan)
+library(shinystan)
 #library(tidybayes)
 library(cmdstanr)
 
@@ -17,7 +17,7 @@ mean_count = log(5)
 sd_route = 0.1
 sd_ann_fluct = log(1.3) # average annual fluctuation = 15% or -13%
 sd_ann_fluct_route = sd_ann_fluct*0.05 #5% variation among routes
-t = c(0,0.06,0,-0.06,0.00)
+t = c(0,0.02,0,-0.02,0.00)
 cp = c(1986,1992,2001,2010)
 yr_spans = as.integer(cut(years,breaks = c(-Inf,cp,Inf),ordered_result = TRUE))
 sdt = rep(0.002,3)
@@ -97,7 +97,7 @@ sdB_pr <- signif(sd(gam_dat$year_basis),2)#prior on the sd of t-distribution pri
 
 #load("temp_data.RData")
 
-#sdB_pr <- 2.5 
+sdB_pr <- 2.5 
 
 stan_data = list(count = count_df$count,
                  year = count_df$yr,
