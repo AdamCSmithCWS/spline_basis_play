@@ -4,6 +4,7 @@
 library(bbsBayes)
 
 library(tidyverse)
+library(patchwork)
 funct_dir <- "Functions/" # alternate = "C:/myFunctions/myFunctions/R/"
 source(paste0(funct_dir,"get_basemap_function.R"))
 source(paste0(funct_dir,"GAM_basis_function_mgcv.R"))
@@ -263,7 +264,7 @@ strat_centres = suppressWarnings(sf::st_centroid(realized_strata_map))
   scale_trend_var_lat = 0.02 # 0.01 = ~range of 8%/year in trends values based on latitude
   scale_trend_var_long = 0.005 # 0.01 = ~range of 2%/year in trends values based on latitude
   
-  true_trends = c(0,-0.07,0,-0.07,0)
+  true_trends = c(0.02,0.07,0,-0.07,0.03)
   true_breakpoints = c(1984,1993,2001,2010)
   trend_spans = as.integer(cut(years,breaks = c(-Inf,true_breakpoints,Inf),ordered_result = TRUE))
   ### trend spans is an integer indicator variable
@@ -468,7 +469,7 @@ rt_df = unique(data.frame(route = stan_data$route,
   ## run sampler on model, data
   # data_file <- "tmpdata/tmp_data.json"
   # write_stan_json(stan_data,file = data_file)
-  slope_stanfit <- slope_model$sample(
+  slope_stanfit_sim <- slope_model$sample(
     data=stan_data_sim,
     refresh=25,
     chains=3, iter_sampling=500,
@@ -482,25 +483,411 @@ rt_df = unique(data.frame(route = stan_data$route,
     output_dir = "output",
     output_basename = paste0(species_file,"_simulated_cmdStan_out_"))
   
-  csv_files <- dir("output/",pattern = paste0(species_file,"_simulated_cmdStan_out_"),full.names = TRUE)
+  csv_files_sim <- dir("output/",pattern = paste0(species_file,"_simulated_cmdStan_out_"),full.names = TRUE)
   
 
 
+  
+  # compare simple estimates with true ---------------------------------------
+  
+  
+  
+  sl_rstan_sim <- rstan::read_stan_csv(csv_files_sim)
+  #   launch_shinystan(as.shinystan(sl_rstan))
+  #   
+  #   loo_stan = loo(sl_rstan)
+  # }
+  # # mod_sum = slope_stanfit$summary(variables = "n")
+  
+  
+  
+  # Extract parameter values from fitted model ------------------------------
+  
+  # sdyear[s]
+  sdyear_sim = posterior_samples(sl_rstan_sim,
+                             parm = "sdyear",
+                             dims = "s") %>% 
+    posterior_sums(dims = "s")
+  
+  sdyear_comp = ggplot(data = sdyear_sim,aes(x = s,y = mean))+
+    geom_errorbar(aes(ymin = lci,ymax = uci),alpha = 0.5,width = 0)+
+    geom_point()+
+    geom_point(data = sdyear,aes(x = s,y = mean),colour = "blue",alpha = 0.5,shape = 2)
+  print(sdyear_comp)
+  
+  
+  # route
+  rte_sim = posterior_samples(sl_rstan_sim,
+                          parm = "rte",
+                          dims = "r")%>% 
+    posterior_sums(dims = "r") 
+  rte = rename(rte,true_mean = mean)
+  rte_sim = bind_cols(rte_sim,rte)
+  
+  rte_comp = ggplot(data = rte_sim,aes(x = true_mean,y = mean))+
+    geom_errorbar(aes(ymin = lci,ymax = uci),alpha = 0.5,width = 0)+
+    geom_point()
+  
+  print(rte_comp)
+
+  
+  # sdobs
+  obs_sim = posterior_samples(sl_rstan_sim,
+                          parm = "obs",
+                          dims = "o")%>% 
+    posterior_sums(dims = "o")
+  
+  
+  obs = rename(obs,true_mean = mean)
+  obs_sim = bind_cols(obs_sim,obs)
+  
+  obs_comp = ggplot(data = obs_sim,aes(x = true_mean,y = mean))+
+    geom_errorbar(aes(ymin = lci,ymax = uci),alpha = 0.2,width = 0)+
+    geom_point()
+  
+  print(obs_comp)
+
+  
+  
+  # sdstrata
+  strata_sim = posterior_samples(sl_rstan_sim,
+                             parm = "strata",
+                             dims = "s")%>% 
+    posterior_sums(dims = "s") 
+  strata = rename(strata,true_mean = mean)
+  strata_sim = bind_cols(strata_sim,strata)
+  
+  strata_comp = ggplot(data = strata_sim,aes(x = true_mean,y = mean))+
+    geom_errorbar(aes(ymin = lci,ymax = uci),alpha = 0.2,width = 0)+
+    geom_point()
+  
+  print(strata_comp)
+
+  
+  # STRATA
+  STRATA_sim = posterior_samples(sl_rstan_sim,
+                             parm = "STRATA")%>% 
+    posterior_sums() 
+  
+  STRATA_sim
+  STRATA
+  
+  sdnoise_sim = posterior_samples(sl_rstan_sim,
+                              parm = "sdnoise")%>% 
+    posterior_sums() 
+  sdnoise_sim
+  sdnoise
+  
+  
+  
+  
+
+# calculate trajectories and trends ---------------------------------------
+
+  n_samples = posterior_samples(sl_rstan_sim,
+                                parm = "n",
+                                dims = c("s","y"))  %>% 
+    left_join(.,years_df,by = "y") %>% 
+    left_join(.,str_link,by = c("s" = "strat"))
+  
+  inds = n_samples %>% 
+    posterior_sums(.,
+                   dims = c("strat_name","year"))
+
+  nsmooth_samples = posterior_samples(sl_rstan_sim,
+                                     parm = "nsmooth",
+                                     dims = c("s","y")) %>% 
+    left_join(.,years_df,by = "y")  %>% 
+    left_join(.,str_link,by = c("s" = "strat"))
+  
+  
+  inds_smooth = nsmooth_samples %>% 
+    posterior_sums(.,
+                   dims = c("strat_name","year"))
+  
+  
+  
+
+# compare estimate trends with true ---------------------------------------
+
+  
+## calculate the estimated trends for each trend span and for the full time-series
+  trend_intervals = c(min(years_df$year),true_breakpoints,max(years_df$year))
+  
+  trends = NULL
+  for(yy in 1:length(true_trends)){
+    y1 = trend_intervals[yy]
+    y2 = trend_intervals[yy+1]
+    
+    trends_tmp = tr_func(nsmooth_samples,
+                     scale = "strat_name",
+                     start_year = y1,
+                     end_year = y2)
+    
+    trends <- bind_rows(trends,trends_tmp)
+    
+    
+    
+  }
+  
+  trends = mutate(trends,period = as.character(start_year))
+  # full time series trend
+  trends_tmp <- tr_func(nsmooth_samples,
+                       scale = "strat_name",
+                       start_year = trend_intervals[1],
+                       end_year = trend_intervals[length(trend_intervals)]) 
+  trends = bind_rows(trends,trends_tmp)
+  trends = mutate(trends,period = as.character(paste0(start_year,"-",end_year)))
+  
+
+# join the true trends in a data frame ------------------------------------
+
+  str_tr_link <- NULL
+  for(sp in 1:length(true_trends)){
+   tmp <- data.frame(s = 1:max(str_link$strat),
+                     period = as.character(paste0(trend_intervals[sp],"-",trend_intervals[sp+1])))
+    for(st in 1:nrow(tmp)){
+      tmp[st,"true_trend"] <- 100*(exp(trend_mat[sp,st])-1)
+    }
+   str_tr_link <- bind_rows(str_tr_link,tmp)
+  }
+  tmp <- data.frame(s = 1:max(str_link$strat),
+                    period = as.character(paste0(trend_intervals[1],"-",trend_intervals[length(trend_intervals)])))
+  for(st in 1:nrow(tmp)){
+    tmp2 = mean(trend_mat[,st][trend_spans])
+    tmp[st,"true_trend"] <- 100*(exp(tmp2)-1)
+  }
+  str_tr_link <- bind_rows(str_tr_link,tmp)
+  str_tr_link <- left_join(str_tr_link,str_link,by = c("s" = "strat"))
+  
+  
+  ## join true trends and estimated trends
+  trends <- trends %>% left_join(.,str_tr_link,by = c("strat_name","period"))
+
+#plot a comparison plot of true and estimates
+nfac = ceiling(sqrt(max(str_link$strat)))
+
+trends_comp = ggplot(data = trends,aes(x = s,y = mean_trend))+
+  geom_errorbar(aes(ymin = lci_trend,ymax = uci_trend),alpha = 0.2,width = 0)+
+  geom_point()+
+  geom_point(aes(x = s,y = true_trend),colour = "blue",shape = 2)+
+  facet_wrap(~period,nrow = 2,ncol = 3)
+
+print(trends_comp)
+
+
+
+
+# plot the hyperparameter trajectory ----------------------
+
+Y_pred_samples = posterior_samples(fit = sl_rstan_sim,
+                                   parm = "Y_pred",
+                                   dims = "y") %>% 
+  left_join(.,years_df,by = "y")
+
+Y_pred = posterior_sums(Y_pred_samples,
+                        dims = "year")
+
+hyper_plot = ggplot(data = Y_pred,aes(x = year,y = exp(mean)))+
+  geom_ribbon(aes(ymin = exp(lci),ymax = exp(uci)),alpha = 0.3)+
+  geom_line()
+
+print(hyper_plot)
+
+
+
+
+# map the true and estimated trends ---------------------------------------
+
+
+
+maps_out = vector(mode = "list",length = length(unique(trends$period)))
+names(maps_out) <- unique(trends$period)
+
+for(pp in names(maps_out)){
+  
+  tmp = vector(mode = "list",2)
+  
+  ttmp = trends %>% filter(period == pp)
+  
+  tmp[[1]] <- map_trends(trends = ttmp,
+                         trend_col = "true_trend",
+                         species = paste("True trends"))
+  tmp[[2]] <- map_trends(trends = ttmp,
+                         trend_col = "mean_trend",
+                         species = paste("Estimated trends"))
+  
+  maps_out[[pp]] <- tmp
+  
+  
+}
+
+
+
+
+
+# plot the trajectories ---------------------------------------------------
+
+# STratum level indices ---------------------------------------------------
+first_year = min(years_df$year)
+
+ind_sm <- nsmooth_samples %>% group_by(s,strat_name,year) %>% 
+  summarise(mean = mean(.value),
+            lci = quantile(.value,0.025),
+            uci = quantile(.value,0.975)) %>% 
+  mutate(type = "smooth")
+
+ind_full <- n_samples %>% group_by(s,strat_name,year) %>% 
+  summarise(mean = mean(.value),
+            lci = quantile(.value,0.025),
+            uci = quantile(.value,0.975))%>% 
+  mutate(type = "full")
+
+
+inds <- bind_rows(ind_sm,ind_full)
+
+nstrata <- max(inds$s)
+nf <- ceiling(sqrt(nstrata))
+
+nonzero_w = data.frame(strat = 1:stan_data_sim$nstrata,
+                       weights = stan_data_sim$nonzeroweight)
+
+raw <- data.frame(count = stan_data_sim$count,
+                  strat = stan_data_sim$strat,
+                  year = stan_data_sim$year+(first_year-1)) %>% 
+  left_join(.,str_link,by = "strat")
+
+
+
+
+raw_full <- data.frame(count = exp(event_df_log$true_traj_yr_obs_noise),
+                  strat = event_df_log$strat,
+                  year = event_df_log$year) %>% 
+  left_join(.,str_link,by = "strat")
+
+
+
+raw_means <- raw %>% group_by(year,strat,strat_name) %>% 
+  summarise(mean_count = mean(count),
+            uqrt_count = quantile(count,0.75),
+            n_surveys = n())%>% 
+  left_join(.,nonzero_w,by = "strat") %>% 
+  mutate(mean_count = mean_count*weights,
+         uqrt_count = uqrt_count*weights)
+
+
+raw_means_full <- raw_full %>% group_by(year,strat,strat_name) %>% 
+  summarise(mean_count = mean(count),
+            uqrt_count = quantile(count,0.75),
+            n_surveys = n()) %>% 
+  left_join(.,nonzero_w,by = "strat")%>% 
+  mutate(mean_count = mean_count*weights,
+         uqrt_count = uqrt_count*weights)
+
+
+
+ind_fac <- ggplot(data = inds,aes(x = year,y = mean))+
+  geom_ribbon(aes(ymin = lci,ymax = uci,fill = type),alpha = 0.2)+
+  geom_line(aes(colour = type))+
+  geom_point(data = raw_means,aes(x = year,y = mean_count),alpha = 0.2,inherit.aes = FALSE)+
+  scale_y_continuous(limits = c(0,NA))+
+  facet_wrap(~strat_name,nrow = nf,scales = "free")
+
+#print(ind_fac)
+
+
+# continental indices -----------------------------------------------------
+# 
+# a_weights <- as.data.frame(realized_strata_map) %>% 
+#   rename(s = strat) %>% 
+#   mutate(area = AREA/sum(AREA)) %>% 
+#   select(s,area)
+# 
+# 
+# I_sm <- nsmooth_samples %>% left_join(.,a_weights,by = "s") %>% 
+#   mutate(.value = .value*area) %>% 
+#   group_by(.draw,year) %>% 
+#   summarise(.value = sum(.value)) %>% 
+#   group_by(year) %>% 
+#   summarise(mean = mean(.value),
+#             lci = quantile(.value,0.025),
+#             uci = quantile(.value,0.975)) %>% 
+#   mutate(type = "smooth")
+# 
+# I_full <- n_samples %>% left_join(.,a_weights,by = "s") %>% 
+#   mutate(.value = .value*area) %>% 
+#   group_by(.draw,year) %>% 
+#   summarise(.value = sum(.value)) %>% 
+#   group_by(year) %>% 
+#   summarise(mean = mean(.value),
+#             lci = quantile(.value,0.025),
+#             uci = quantile(.value,0.975)) %>%
+#   mutate(type = "full")
+# 
+# 
+# Is <- bind_rows(I_sm,I_full)
+# 
+# 
+# I_plot <- ggplot(data = Is,aes(x = year,y = mean))+
+#   geom_ribbon(aes(ymin = lci,ymax = uci,fill = type),alpha = 0.2)+
+#   geom_line(aes(colour = type))+
+#   labs(title = paste(species,"survey wide trajectory"))+
+#   scale_y_continuous(limits = c(0,NA))
+# 
+# pdf(file = paste0("figures/",species_file,"trajectories.pdf"))
+# 
+# print(I_plot)
 
 
 
 
 
 
+pdf(paste0("Figures/",species_file,"comparison_plots2.pdf"))
+
+print(strata_comp)
+print(obs_comp)
+print(rte_comp)
+print(sdyear_comp)
 
 
+print(hyper_plot)
+print(trends_comp)
 
 
-
-
-
-
-
+for(pp in names(maps_out)){
+ tmp = maps_out[[pp]]
+  print(tmp[[1]]+tmp[[2]]) 
+  
+}
+for(st in str_link$strat_name){
+  indst = filter(inds,strat_name == st)
+  raw_mt = filter(raw_means,strat_name == st)
+  raw_mt_full = filter(raw_means_full,strat_name == st)
+  nsur = filter(raw,strat_name == st)
+  ind_fac <- ggplot(data = indst,aes(x = year,y = mean))+
+    geom_ribbon(aes(ymin = lci,ymax = uci,fill = type),alpha = 0.1)+
+    geom_line(aes(colour = type))+
+    geom_point(data = raw_mt,
+               aes(x = year,y = mean_count),
+               alpha = 0.2,colour = "blue",
+               size = 1,inherit.aes = FALSE)+
+    geom_point(data = raw_mt_full,
+               aes(x = year,y = mean_count),
+               alpha = 0.7,colour = "darkorange",
+               size = 1,inherit.aes = FALSE)+
+    geom_dotplot(data = nsur,aes(x = year),
+                 inherit.aes = FALSE,binwidth = 1,
+                 colour = grey(0.5),
+                 fill = grey(0.5),
+                 alpha = 0.1,
+                 method = "histodot",dotsize = 0.5)+
+    scale_y_continuous(limits = c(0,NA))+
+    theme_classic()+
+    labs(title = st)
+  print(ind_fac)
+}
+dev.off()
 
 
 
