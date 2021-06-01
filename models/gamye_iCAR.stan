@@ -135,7 +135,7 @@ model {
    
   sdobs ~ normal(0,0.5); //prior on sd of observer effects
   sdrte ~ std_normal(); //prior on sd of route effects
-  sdyear ~ gamma(2,2); // prior on sd of yeareffects - stratum specific, and boundary-avoiding with a prior mode at 0.5 (1/2) - recommended by https://doi.org/10.1007/s11336-013-9328-2 
+  sdyear ~ gamma(2,4); // prior on sd of yeareffects - stratum specific, and boundary-avoiding with a 95% of the prior < 1.3 - recommended by https://doi.org/10.1007/s11336-013-9328-2 
   sdBETA ~ std_normal(); // prior on sd of GAM parameters
   
   //nu ~ gamma(2,0.1); // prior on df for t-distribution of heavy tailed route-effects from https://github.com/stan-dev/stan/wiki/Prior-Choice-Recommendations#prior-for-degrees-of-freedom-in-students-t-distribution
@@ -164,7 +164,7 @@ model {
   
   //spatial iCAR intercepts and gam parameters by strata
   sdstrata ~ std_normal(); //prior on sd of intercept variation
-  sdbeta ~ normal(0,1); //prior on sd of GAM parameter variation
+  sdbeta ~ gamma(2,4);//normal(0,1); //prior on sd of GAM parameter variation
 
 for(k in 1:nknots_year){
     beta_raw[,k] ~ icar_normal(nstrata, node1, node2);

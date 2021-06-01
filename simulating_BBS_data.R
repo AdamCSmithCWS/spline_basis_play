@@ -5,6 +5,7 @@ library(bbsBayes)
 
 library(tidyverse)
 library(patchwork)
+library(cmdstanr)
 funct_dir <- "Functions/" # alternate = "C:/myFunctions/myFunctions/R/"
 source(paste0(funct_dir,"get_basemap_function.R"))
 source(paste0(funct_dir,"GAM_basis_function_mgcv.R"))
@@ -32,6 +33,9 @@ strata_map = get_basemap(strat_sel,
 
 
 species = "Pacific Wren"
+species_file = gsub(pattern = "([[:punct:]]|[[:blank:]])","",species)
+
+
 model = "gamye"
 
 jags_data = prepare_jags_data(strat_data = fulldat,
@@ -145,7 +149,6 @@ init_def <- function(){ list(noise_raw = rnorm(ncounts,0,0.1),
                              beta_raw = matrix(rnorm(nknots_year*nstrata,0,0.01),nrow = nstrata,ncol = nknots_year))}
 
 
-species_file = gsub(pattern = "([[:punct:]]|[[:blank:]])","",species)
 
 ## run sampler on model, data
 # data_file <- "tmpdata/tmp_data.json"
@@ -503,6 +506,36 @@ rt_df = unique(data.frame(route = stan_data$route,
   
   # Extract parameter values from fitted model ------------------------------
   
+  
+  beta_sim = posterior_samples(sl_rstan_sim,
+                                 parm = "beta",
+                                 dims = c("s","k")) %>% 
+    posterior_sums(dims = c("s","k")) %>% 
+    left_join(.,str_link,by = c("s" = "strat"))
+  
+  nfac = ceiling(sqrt(max(str_link$strat)))
+  beta_comp = ggplot(data = beta_sim,aes(x = k,y = mean))+
+    geom_errorbar(aes(ymin = lci,ymax = uci),alpha = 0.5,width = 0)+
+    geom_point()+
+    facet_wrap(~strat_name,nrow = nfac,ncol = nfac)
+  print(beta_comp)
+  
+
+# sdbeta and sdBETA ------------------------------------------------------------------
+
+  
+  sdbeta_sim = posterior_samples(sl_rstan_sim,
+                                 parm = "sdbeta")%>% 
+    posterior_sums() 
+  
+  sdbeta_sim 
+  
+  sdBETA_sim = posterior_samples(sl_rstan_sim,
+                                 parm = "sdBETA")%>% 
+    posterior_sums() 
+  
+  sdBETA_sim 
+  
   # sdyear[s]
   sdyear_sim = posterior_samples(sl_rstan_sim,
                              parm = "sdyear",
@@ -619,7 +652,7 @@ rt_df = unique(data.frame(route = stan_data$route,
     y1 = trend_intervals[yy]
     y2 = trend_intervals[yy+1]
     
-    trends_tmp = tr_func(nsmooth_samples,
+    trends_tmp = estimate_trend(nsmooth_samples,
                      scale = "strat_name",
                      start_year = y1,
                      end_year = y2)
@@ -632,7 +665,7 @@ rt_df = unique(data.frame(route = stan_data$route,
   
   trends = mutate(trends,period = as.character(start_year))
   # full time series trend
-  trends_tmp <- tr_func(nsmooth_samples,
+  trends_tmp <- estimate_trend(nsmooth_samples,
                        scale = "strat_name",
                        start_year = trend_intervals[1],
                        end_year = trend_intervals[length(trend_intervals)]) 
@@ -843,7 +876,8 @@ ind_fac <- ggplot(data = inds,aes(x = year,y = mean))+
 
 
 
-pdf(paste0("Figures/",species_file,"comparison_plots2.pdf"))
+pdf(paste0("Figures/",species_file,"comparison_plots3normalregulrize.pdf"))
+print(beta_comp)
 
 print(strata_comp)
 print(obs_comp)
