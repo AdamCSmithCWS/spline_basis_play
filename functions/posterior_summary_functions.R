@@ -51,7 +51,7 @@ posterior_samples <- function(fit = cmdstanfit,
   }
   if(class(fit)[1] == "stanfit"){is_rstan <- TRUE}
   
-  if(class(fit) == "mcmc"){is_mcmc <- TRUE}
+  if(class(fit)[1] == "mcmc"){is_mcmc <- TRUE}
   
   if(is_rstan | is_mcmc){
   samples <- as_draws_df(as.array(fit)) %>% 
