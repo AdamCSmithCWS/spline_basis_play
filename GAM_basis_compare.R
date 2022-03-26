@@ -24,7 +24,7 @@ dat = data.frame(y = y,x = x)
 ## just to get the basis function
 ## minimal (and obviously insufficient) fit
 ## Is there a way to get the basis without fitting it?
-M = stan_gamm4(y ~ s(x,k = 8, bs = "cr"),data = dat,
+M = stan_gamm4(y ~ s(x,k = 8, bs = "tp"),data = dat,
                chains=1, iter=600,
                warmup=300,
                cores = 1)
@@ -40,8 +40,8 @@ cat(modl,file = "tmp_stancode.stan")
 ## minimal (and obviously insufficient) fit
 ## Is there a way to get the basis without fitting it?
 
-brms_code = make_stancode(bf(y ~ s(x,k = 8, bs = "ps")),data = dat)
-Mbr = brm(bf(y ~ s(x,k = 8, bs = "ds")),data = dat,
+brms_code = make_stancode(bf(y ~ s(x,k = 8, bs = "tp")),data = dat)
+Mbr = brm(bf(y ~ s(x,k = 8, bs = "tp")),data = dat,
           chains=1, iter=200,
           warmup=100,
           cores = 1)
@@ -58,6 +58,7 @@ all(rstanarm_basis == brms_basis)
 #  jagam basis ------------------------------------------------------------
 
 Mj = jagam(y ~ s(x,k = 8, bs = "tp"),data = dat,
+           diagonalize=TRUE,
            file = "temp_jag.del")
 head(Mj$jags.data$X)
 
@@ -96,9 +97,9 @@ mgcv_X = data.frame(mgcv_basis)
 mgcv_X$pkg = "mgcv"
 
 
-# paired_mat = bind_cols(rstanarm_X,jagam_X)
-# 
-# pp = ggpairs(data = paired_mat)
+ # paired_mat = bind_cols(mgcv_X,jagam_X)
+ # 
+ # pp = ggpairs(data = paired_mat)
 # 
 # png(filename = "pairs_plot.png",
 #     res = 150,
@@ -118,6 +119,7 @@ stacked_basis = bind_rows(rstanarm_X,jagam_X,mgcv_X) %>%
 
 bas_gg = ggplot(data = stacked_basis,aes(x = n,y = basis,colour = knot))+
   geom_line()+
+  scale_colour_viridis_d()+
   facet_wrap(~pkg,ncol = 3)
 print(bas_gg)
 
